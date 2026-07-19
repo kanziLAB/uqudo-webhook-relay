@@ -90,7 +90,7 @@ sequenceDiagram
     R-->>P: 400 (record: rejected — retry won't help)
   end
   R->>U: 3 enrich — Info API (best-effort, timed)
-  Note over R,U: detection scores are NOT in the JWT;<br/>Info API data expires, so fetch happens now
+  Note over R,U: detection scores are NOT in the JWT —<br/>Info API data expires, so fetch happens now
   R->>R: 4 map JWT (+ enrichment) → Uqudo_KYC_Data
   R->>I: 5 POST document?runStrategy=true (browser UA for Cloudflare)
   alt Intuition 2xx
