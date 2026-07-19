@@ -142,6 +142,55 @@ check('info-doc reading.data fills contact gaps when the raw JWT lacks it', () =
   const p = mapper.buildIntuitionPayload(kyc, {});
   assert.strictEqual(p.contactInfo[0].email, 'nfc@example.com');
 });
+check('REAL webhook JWT shape maps device/face/mrz (regression from captured session)', () => {
+  // Mirrors the structure captured from a live portal webhook on 2026-07-19:
+  // scan.front/back (no scan.data), face at document level, verifications[] at
+  // data level, deviceAttestation.info.identifier + boolean risk flags.
+  const kyc = { jti: 'real-shape', data: {
+    source: { devicePlatform: 'ANDROID' },
+    documents: [{
+      documentType: 'ID',
+      face: { match: true, matchLevel: 5, falseAcceptRate: null },
+      scan: {
+        front: { fullName: 'ALEX SAMPLE TESTER', identityNumber: '784199912345678', nationality: 'ARE' },
+        back: { documentNumber: '145217945', mrzVerified: true }
+      },
+      reading: { data: { homeAddressEmail: 'real@example.com', homeAddressMobilePhoneNo: '0555555555' } }
+    }],
+    verifications: [{
+      biometric: { type: 'FACIAL_RECOGNITION', enabled: true, matchLevel: 5 },
+      mrzChecksum: { valid: true, enabled: true },
+      reading: { enabled: true, passiveAuthentication: { enabled: true, documentDataSignatureValid: true } }
+    }],
+    deviceAttestation: {
+      info: { model: 'sm-a256e', version: '16', platform: 'ANDROID', timezone: '4',
+              identifier: '0e22c2fcf50d3300143591c98d4521be', manufacturer: 'samsung',
+              cpuArchitecture: 'aarch64', ipInfo: [{ ip: '2001:db8::1', countryCode: 'AE' }] },
+      risk: { rooted: false, emulated: false, hooking: false, proxy: false, vpnRunning: false,
+              debugging: false, deviceMasked: false, payloadTampered: false,
+              applicationStore: 'com.android.vending' }
+    }
+  } };
+  const p = mapper.buildIntuitionPayload(kyc, {});
+  const da = p.DeviceAttestation[0];
+  assert.strictEqual(da.deviceIdentifier, '0e22c2fcf50d3300143591c98d4521be', 'info.identifier must map');
+  assert.strictEqual(da.osVersion, '16');
+  assert.strictEqual(da.emulator, 'false');
+  assert.strictEqual(da.IP, '2001:db8::1');
+  assert.strictEqual(da.IPLocation_country, 'AE');
+  assert.strictEqual(da.appInstallerSource, 'com.android.vending');
+  const bio = p.biometricVerification[0];
+  assert.strictEqual(bio.face_match, 'true');
+  assert.strictEqual(bio.face_match_level, '5');
+  assert.strictEqual(bio.biometric_type, 'FACIAL_RECOGNITION');
+  assert.strictEqual(bio.mrz_checksum_valid, 'true');
+  assert.strictEqual(bio.passive_auth_valid, 'true');
+  assert.strictEqual(bio.reading_enabled, 'true');
+  assert.strictEqual(p.contactInfo[0].email, 'real@example.com');
+  assert.strictEqual(p.personalInfo[0].full_name, 'ALEX SAMPLE TESTER', 'scan.front fields must map');
+  assert.strictEqual(p.customer_number, '784199912345678');
+  assert.strictEqual(p.fraudDetection[0].is_face_matched, 'true', 'derived from face.match');
+});
 check('legacy bare detection keys still map (fallback)', () => {
   const legacy = { jti: 'x', documents: [{ scan: { data: {}, verifications: {
     printDetection: { score: 55 }, screenDetection: { score: 44 }, photoTampering: { score: 33 }
