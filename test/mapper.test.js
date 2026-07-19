@@ -39,9 +39,10 @@ const SDK_RESULT = {
           issuingCountry: 'QAT', gender: 'M'
         },
         verifications: {
-          screenDetection: { score: 12.5 },
-          printDetection: { score: 97.5 },
-          photoTampering: { score: 0 }
+          // Real SDK/Info-API key names — objects with { enabled, score }
+          idScreenDetection: { enabled: true, score: 12.5 },
+          idPrintDetection: { enabled: true, score: 97.5 },
+          idPhotoTamperingDetection: { enabled: true, score: 0 }
         }
       },
       reading: { data: { expiryDate: '2030-01-31' } }
@@ -123,6 +124,62 @@ check('TRAP 4: schema types (Intuition rejects the doc on a mismatch)', () => {
     'face_match_level must be String');
   assert.strictEqual(typeof payload.RiskIndicators[0].nationality_risk, 'number',
     'RiskIndicators.nationality_risk must be Number');
+});
+check('contactInfo maps the real homeAddress* NFC keys (feeds MA_EM/MA_PH)', () => {
+  const kyc = { jti: 'x', data: { documents: [{ reading: { data: {
+    homeAddressEmail: 'user@example.com',
+    homeAddressMobilePhoneNo: '0500000000',
+    homeAddressEmirateDesc: 'Dubai'
+  } } }] } };
+  const p = mapper.buildIntuitionPayload(kyc, {});
+  assert.strictEqual(p.contactInfo[0].email, 'user@example.com');
+  assert.strictEqual(p.contactInfo[0].mobile_phone, '0500000000');
+  assert.strictEqual(p.contactInfo[0].emirate, 'Dubai');
+});
+check('info-doc reading.data fills contact gaps when the raw JWT lacks it', () => {
+  const kyc = { jti: 'x', data: { documents: [{ scan: { data: {} } }] },
+    infoApiDocuments: [{ reading: { data: { homeAddressEmail: 'nfc@example.com' } } }] };
+  const p = mapper.buildIntuitionPayload(kyc, {});
+  assert.strictEqual(p.contactInfo[0].email, 'nfc@example.com');
+});
+check('legacy bare detection keys still map (fallback)', () => {
+  const legacy = { jti: 'x', documents: [{ scan: { data: {}, verifications: {
+    printDetection: { score: 55 }, screenDetection: { score: 44 }, photoTampering: { score: 33 }
+  } } }] };
+  const p = mapper.buildIntuitionPayload(legacy, {});
+  assert.strictEqual(p.fraudDetection[0].id_print_detection_score, 55);
+  assert.strictEqual(p.fraudDetection[0].id_screen_detection_score, 44);
+  assert.strictEqual(p.fraudDetection[0].photo_tampering_score, 33);
+});
+check('Info API documents take precedence for detection scores', () => {
+  // Real webhook JWTs carry NO detection scores; enrichment attaches
+  // infoApiDocuments whose scan.verifications must win over the raw doc.
+  const kyc = JSON.parse(JSON.stringify(SDK_RESULT));
+  delete kyc.data.documents[0].scan.verifications;   // like a real webhook JWT
+  kyc.infoApiDocuments = [{ scan: { verifications: {
+    idPrintDetection: { enabled: true, score: 88 },
+    idScreenDetection: { enabled: true, score: 77 },
+    idPhotoTamperingDetection: { enabled: true, score: 66 }
+  } } }];
+  const p = mapper.buildIntuitionPayload(kyc, {});
+  assert.strictEqual(p.fraudDetection[0].id_print_detection_score, 88);
+  assert.strictEqual(p.fraudDetection[0].id_screen_detection_score, 77);
+  assert.strictEqual(p.fraudDetection[0].photo_tampering_score, 66);
+});
+check('without enrichment a real-shaped JWT maps zero scores (the PEP_SIMILAR-only case)', () => {
+  const kyc = JSON.parse(JSON.stringify(SDK_RESULT));
+  delete kyc.data.documents[0].scan.verifications;
+  const p = mapper.buildIntuitionPayload(kyc, {});
+  assert.strictEqual(p.fraudDetection[0].id_print_detection_score, 0);
+  assert.strictEqual(p.fraudDetection[0].id_screen_detection_score, 0);
+});
+check('enrich module: disabled without credentials, decodes JWS payloads', async () => {
+  const enrich = require('../lib/enrich');
+  assert.strictEqual(enrich.enabled(), false, 'no creds in test env => disabled');
+  assert.strictEqual(await enrich.fetchInfoDocuments('any-jti'), null, 'disabled => null, never throws');
+  const payload = { data: { documents: [{ id: 1 }] } };
+  const seg = Buffer.from(JSON.stringify(payload)).toString('base64').replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+  assert.deepStrictEqual(enrich._decodePayload(`eyJhbGciOiJub25lIn0.${seg}.sig`), payload);
 });
 check('customer_number falls back to the identity number', () => {
   assert.strictEqual(payload.customer_number, '784199912345678');

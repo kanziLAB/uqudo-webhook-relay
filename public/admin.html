@@ -510,7 +510,7 @@ function openDrawer(id){
   }</div>`;
 
   if (r.stages) h += `<h3>Stage timings</h3><div class="kv">${kv({
-    'Verify/decode': ms(r.stages.verifyMs), 'Map': ms(r.stages.mapMs), 'Forward to Intuition': ms(r.stages.forwardMs)
+    'Verify/decode': ms(r.stages.verifyMs), 'Info API enrich': ms(r.stages.enrichMs), 'Map': ms(r.stages.mapMs), 'Forward to Intuition': ms(r.stages.forwardMs)
   })}</div>`;
 
   if (r.intuitionError) h += `<h3>Intuition error</h3><pre>${esc(JSON.stringify(r.intuitionError, null, 2))}</pre>`;

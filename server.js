@@ -21,6 +21,7 @@ const store = require('./lib/store');
 const redact = require('./lib/redact');
 const adminRoutes = require('./lib/admin-routes');
 const adminAuth = require('./lib/admin-auth');
+const enrich = require('./lib/enrich');
 
 const app = express();
 app.disable('x-powered-by');
@@ -100,6 +101,7 @@ app.get('/healthz', async (req, res) => {
     ok: true,
     target: intuition.documentsUrl(),
     jwsVerification: config.uqudo.publicKey ? 'enabled' : (config.uqudo.allowUnverified ? 'DISABLED (ALLOW_UNVERIFIED)' : 'no key configured - requests will be rejected'),
+    infoApiEnrichment: enrich.enabled() ? 'enabled' : 'disabled (no UQUDO_CLIENT_ID/SECRET) - FD_* detection rules cannot fire',
     inboundAuth: secured() ? 'enabled' : 'open (no shared secret configured)',
     admin: adminAuth.enabled() ? 'enabled' : 'disabled (no ADMIN_PASSWORD)',
     logStore: store.driverName,
@@ -157,6 +159,16 @@ app.post(['/api/uqudo-webhook', '/api/uqudo-webhook/:token'], async (req, res) =
   } catch (e) {
     await record({ result: 'rejected', reason: `jws: ${e.message}`, httpStatus: 400, durationMs: Date.now() - started, jwsAlg: safeAlg(token), ...meta });
     return res.status(400).json({ error: `Invalid jwsResult: ${e.message}` });
+  }
+
+  // ---- enrich (Info API) ----------------------------------------------------
+  // Detection scores are NOT in the webhook JWT — they come from the Info API.
+  // Best-effort: a failure logs and the delivery continues with fewer rules.
+  if (enrich.enabled()) {
+    const tEnrich = Date.now();
+    const infoDocs = await enrich.fetchInfoDocuments(kyc.jti);
+    stages.enrichMs = Date.now() - tEnrich;
+    if (infoDocs) kyc.infoApiDocuments = infoDocs;
   }
 
   // ---- map ------------------------------------------------------------------
