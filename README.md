@@ -35,6 +35,14 @@ flowchart LR
 Full design, sequence diagrams, and the deployment topology are in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
+**Documentation**
+
+| Doc | What it covers |
+|---|---|
+| [docs/INSTALLATION.md](docs/INSTALLATION.md) | Installation & implementation guide — deployment modes (Vercel / Docker / HA), **backend selector (Postgres · MongoDB · Elasticsearch)**, portal wiring, verification, operations |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Illustrated architecture — every component explained with 12 diagrams |
+| [docs/WEBHOOK-SETUP.md](docs/WEBHOOK-SETUP.md) | Placing the webhook in the Uqudo Customer Portal, step by step |
+
 ---
 
 ## Why a relay (and not the portal → Intuition directly)?
