@@ -22,6 +22,7 @@ const redact = require('./lib/redact');
 const adminRoutes = require('./lib/admin-routes');
 const adminAuth = require('./lib/admin-auth');
 const enrich = require('./lib/enrich');
+const settings = require('./lib/settings');
 
 const app = express();
 app.disable('x-powered-by');
@@ -135,6 +136,10 @@ app.post(['/api/uqudo-webhook', '/api/uqudo-webhook/:token'], async (req, res) =
     return res.status(401).json({ error: 'unauthorised' });
   }
 
+  // Payload capture is runtime-togglable from the dashboard (stored setting
+  // overrides the LOG_PAYLOADS env default). Resolve once per delivery.
+  const capturePayloads = await settings.logPayloads();
+
   const token = req.body && (req.body.jwsResult || req.body.jws || req.body.token);
   if (!token) {
     await record({ result: 'rejected', reason: 'no jwsResult in body', httpStatus: 400, durationMs: Date.now() - started, bodyKeys: Object.keys(req.body || {}), ...meta });
@@ -184,7 +189,7 @@ app.post(['/api/uqudo-webhook', '/api/uqudo-webhook/:token'], async (req, res) =
     await record({
       result: 'error', reason: `map: ${e.message}`, httpStatus: 500, stages,
       durationMs: Date.now() - started, verified,
-      payloads: redact.buildPayloadBundle({ enabled: config.logPayloads, kyc }),
+      payloads: redact.buildPayloadBundle({ enabled: capturePayloads, kyc }),
       ...meta
     });
     return res.status(500).json({ error: `Mapping failed: ${e.message}` });
@@ -218,7 +223,7 @@ app.post(['/api/uqudo-webhook', '/api/uqudo-webhook/:token'], async (req, res) =
       intuitionError: r.ok ? undefined : truncate(emptyBody(r.body) ? `(empty ${r.status} response body)` : r.body),
       stages,
       durationMs: Date.now() - started,
-      payloads: redact.buildPayloadBundle({ enabled: config.logPayloads, kyc, document: payload, intuitionResponse: body }),
+      payloads: redact.buildPayloadBundle({ enabled: capturePayloads, kyc, document: payload, intuitionResponse: body }),
       ...meta
     });
     if (!r.ok) {
@@ -238,7 +243,7 @@ app.post(['/api/uqudo-webhook', '/api/uqudo-webhook/:token'], async (req, res) =
       result: 'error', reason: `forward: ${e.message}`, httpStatus: 502, stages,
       verified, verification_id: payload.verification_id, customer_number: payload.customer_number,
       durationMs: Date.now() - started,
-      payloads: redact.buildPayloadBundle({ enabled: config.logPayloads, kyc, document: payload }),
+      payloads: redact.buildPayloadBundle({ enabled: capturePayloads, kyc, document: payload }),
       ...meta
     });
     return res.status(502).json({ error: `Forward failed: ${e.message}` });

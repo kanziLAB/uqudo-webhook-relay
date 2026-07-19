@@ -129,6 +129,22 @@ check('filters by result and free-text search', async () => {
   assert.strictEqual((await d.list({ q: 'inbound' })).rows[0].id, 'b');
 });
 
+group('settings (runtime payload-capture toggle):');
+check('defaults to the LOG_PAYLOADS env value when nothing stored', async () => {
+  const settings = require('../lib/settings');
+  settings._resetCache();
+  assert.strictEqual(await settings.logPayloads(), false, 'env default is off in tests');
+});
+check('toggle overrides the env default and persists through the store', async () => {
+  const settings = require('../lib/settings');
+  assert.strictEqual(await settings.setLogPayloads(true), true);
+  settings._resetCache();                    // force a re-read from the store
+  assert.strictEqual(await settings.logPayloads(), true, 'stored value wins');
+  await settings.setLogPayloads(false);
+  settings._resetCache();
+  assert.strictEqual(await settings.logPayloads(), false);
+});
+
 group('stats:');
 check('counts, success rate and percentiles', () => {
   const now = new Date().toISOString();

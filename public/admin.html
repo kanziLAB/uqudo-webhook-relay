@@ -36,7 +36,11 @@
   .spacer{flex:1}
   .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;
         border:1px solid var(--line);background:var(--panel2);font-size:12px;color:var(--muted);white-space:nowrap}
-  .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+  /* Hard-locked to a circle: explicit min/max + aspect-ratio so no flex/line-
+     height quirk can stretch it into a capsule (the "JWS unverified" icon bug). */
+  .dot{width:8px;height:8px;min-width:8px;max-width:8px;min-height:8px;max-height:8px;
+       aspect-ratio:1;border-radius:50%;background:var(--muted);
+       display:inline-block;flex:0 0 auto;align-self:center;padding:0}
   .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.err{background:var(--err)}
 
   /* Live-refresh indicator — makes the auto-poll visible. The dot pulses
@@ -71,7 +75,9 @@
   .login p{margin:0 0 18px;color:var(--muted);font-size:13px}
   .login input{width:100%;margin-bottom:12px}
   .login button{width:100%}
-  .err{color:var(--err);font-size:13px;margin-top:10px;min-height:18px}
+  /* Scoped to the login card: a bare `.err` also matched the status dots
+     (class "dot err") and its min-height stretched them into capsules. */
+  .login .err{color:var(--err);font-size:13px;margin-top:10px;min-height:18px}
 
   /* cards */
   .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
@@ -118,6 +124,19 @@
       border:1px solid color-mix(in srgb,var(--accent) 32%,transparent)}
   .rulerow{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:baseline;font-size:13px}
   .rulerow .rc{align-self:start}
+
+  /* Payload pipeline sections in the drawer */
+  details.pl{border:1px solid var(--line);border-radius:8px;margin:0 0 10px;background:var(--panel2)}
+  details.pl summary{cursor:pointer;padding:9px 12px;font-size:13px;font-weight:600;
+    list-style:none;display:flex;align-items:center;gap:8px;user-select:none}
+  details.pl summary::-webkit-details-marker{display:none}
+  details.pl summary::after{content:'▸';margin-left:auto;color:var(--muted);transition:transform .15s}
+  details.pl[open] summary::after{transform:rotate(90deg)}
+  details.pl pre{margin:0;border:0;border-top:1px solid var(--line);border-radius:0 0 8px 8px;max-height:420px;overflow:auto}
+  .pln{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
+    border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:700;flex:0 0 auto}
+  /* Payload-capture toggle */
+  #plToggle.on{background:color-mix(in srgb,var(--warn) 22%,var(--panel2));border-color:var(--warn);color:var(--warn)}
   .empty{text-align:center;color:var(--muted);padding:36px 10px}
 
   /* detail drawer */
@@ -213,6 +232,7 @@
         </select>
         <div class="spacer"></div>
         <span class="muted" id="count"></span>
+        <button id="plToggle" title="Capture the decoded JWT, mapped document and Intuition response (masked) on each delivery">Payload capture: …</button>
         <button class="danger" id="clear">Clear log</button>
       </div>
       <div style="overflow-x:auto">
@@ -277,7 +297,7 @@ $('#logout').onclick = async () => {
 async function start(){
   show('app');
   CONF = await api('/config');
-  renderHeader(); renderBanners();
+  renderHeader(); renderBanners(); renderPlToggle();
   await refresh({ force: true });
   clearInterval(timer);
   timer = setInterval(() => { if ($('#auto').checked && !busy()) refresh(); }, 5000);
@@ -308,7 +328,7 @@ function renderBanners(){
   if (!CONF.inboundAuth)
     b.push(`<b>No inbound secret.</b>&nbsp;Anyone who knows this URL can post KYC documents to your dataset.`);
   if (CONF.logPayloads)
-    b.push(`<b>Payload capture is on.</b>&nbsp;Decoded KYC data (masked) is being written to the log. Turn <code>LOG_PAYLOADS</code> off when you're done debugging.`);
+    b.push(`<b>Payload capture is on.</b>&nbsp;Decoded KYC data (masked) is being written to the log. Switch it off with the <b>Payload capture</b> toggle when you're done debugging.`);
   $('#banners').innerHTML = b.map(t => `<div class="banner"><div>${t}</div></div>`).join('');
 }
 
@@ -515,12 +535,19 @@ function openDrawer(id){
 
   if (r.intuitionError) h += `<h3>Intuition error</h3><pre>${esc(JSON.stringify(r.intuitionError, null, 2))}</pre>`;
 
+  // The delivery pipeline as three collapsible sections, in flow order.
   if (r.payloads) {
-    if (r.payloads.jwt) h += `<h3>Decoded JWT (masked)</h3><pre>${esc(JSON.stringify(r.payloads.jwt, null, 2))}</pre>`;
-    if (r.payloads.document) h += `<h3>Mapped document (masked)</h3><pre>${esc(JSON.stringify(r.payloads.document, null, 2))}</pre>`;
-    if (r.payloads.intuitionResponse) h += `<h3>Intuition response</h3><pre>${esc(JSON.stringify(r.payloads.intuitionResponse, null, 2))}</pre>`;
+    const section = (n, title, sub, obj, open) => obj ? `
+      <details class="pl"${open ? ' open' : ''}>
+        <summary><span class="pln">${n}</span> ${esc(title)} <span class="muted">— ${esc(sub)}</span></summary>
+        <pre>${esc(JSON.stringify(obj, null, 2))}</pre>
+      </details>` : '';
+    h += `<h3>Payload pipeline</h3>`;
+    h += section('1', 'Generated by Uqudo', 'decoded webhook JWT, masked', r.payloads.jwt, false);
+    h += section('2', 'Sent to Intuition', 'mapped Uqudo_KYC_Data document, masked', r.payloads.document, false);
+    h += section('3', 'Intuition response', 'decision, rules, scorecards', r.payloads.intuitionResponse, true);
   } else {
-    h += `<h3>Payloads</h3><p class="muted">Not captured. Set <code>LOG_PAYLOADS=true</code> to record the decoded JWT and mapped document (masked) for debugging.</p>`;
+    h += `<h3>Payload pipeline</h3><p class="muted">Not captured for this delivery. Turn on <b>Payload capture</b> (toolbar toggle) and future deliveries will record all three stages (masked).</p>`;
   }
 
   $('#dBody').innerHTML = h;
@@ -542,6 +569,27 @@ $('#clear').onclick = async () => {
   if (!confirm('Delete all recorded deliveries? This cannot be undone.')) return;
   await api('/deliveries', { method: 'DELETE' });
   refresh({ force: true });
+};
+
+// ---- payload-capture toggle ----
+// Persisted server-side (shared across all serverless instances); the banner
+// and button always reflect the effective value.
+function renderPlToggle(){
+  const b = $('#plToggle');
+  if (!b) return;
+  b.textContent = `Payload capture: ${CONF.logPayloads ? 'ON' : 'OFF'}`;
+  b.classList.toggle('on', Boolean(CONF.logPayloads));
+}
+$('#plToggle').onclick = async () => {
+  const next = !CONF.logPayloads;
+  if (next && !confirm('Turn ON payload capture?\n\nEach delivery will store the decoded JWT, the mapped document and the Intuition response in the log (identifiers masked, images dropped). Use for debugging sessions only.')) return;
+  const r = await api('/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ logPayloads: next })
+  });
+  CONF.logPayloads = r.logPayloads;
+  renderPlToggle(); renderBanners();
 };
 $('#ping').onclick = async () => {
   const b = $('#ping'); const old = b.textContent; b.textContent = 'Pinging…'; b.disabled = true;

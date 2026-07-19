@@ -107,6 +107,13 @@ check('filters by time range (since) in SQL', async () => {
   assert.strictEqual((await store.stats({ since: iso(24 * 3600e3) })).total, 1);
   assert.strictEqual((await store.stats()).total, 3);
 });
+check('settings round-trip in SQL (shared across instances)', async () => {
+  assert.strictEqual(await store.getSetting('logPayloads'), null, 'unset -> null');
+  await store.setSetting('logPayloads', 'true');
+  assert.strictEqual(await store.getSetting('logPayloads'), 'true');
+  await store.setSetting('logPayloads', 'false');   // upsert, not duplicate
+  assert.strictEqual(await store.getSetting('logPayloads'), 'false');
+});
 check('clear() empties the log', async () => {
   const n = await store.clear();
   assert.strictEqual(n, 3);
