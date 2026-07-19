@@ -1,0 +1,25 @@
+{
+  "name": "uqudo-webhook-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Relay: receives the Uqudo portal webhook (jwsResult), verifies and decodes the SDK result, maps it to the Uqudo_KYC_Data schema and forwards it to the Intuition Data API. Deployable to Vercel or self-hosted via Docker.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node test/mapper.test.js && node test/admin.test.js && node test/inbound-auth.test.js && node test/postgres.test.js && node test/mongo.test.js && node test/elasticsearch.test.js",
+    "test:pg": "docker run --rm -d --name relay-pg-test -e POSTGRES_PASSWORD=relay -e POSTGRES_USER=relay -e POSTGRES_DB=relay -p 55432:5432 postgres:16-alpine && sleep 5 && node test/postgres.test.js; docker rm -f relay-pg-test",
+    "test:mongo": "docker run --rm -d --name relay-mongo-test -p 57017:27017 mongo:7 && sleep 4 && MONGO_URL=mongodb://127.0.0.1:57017/relaytest node test/mongo.test.js; docker rm -f relay-mongo-test",
+    "test:es": "docker run --rm -d --name relay-es-test -p 59200:9200 -e discovery.type=single-node -e xpack.security.enabled=false -e ES_JAVA_OPTS='-Xms512m -Xmx512m' docker.elastic.co/elasticsearch/elasticsearch:8.15.0 && sleep 40 && ELASTICSEARCH_URL=http://127.0.0.1:59200 node test/elasticsearch.test.js; docker rm -f relay-es-test"
+  },
+  "dependencies": {
+    "@elastic/elasticsearch": "^8.19.2",
+    "express": "^4.21.0",
+    "helmet": "^8.0.0",
+    "mongodb": "^6.21.0",
+    "pg": "^8.22.0"
+  }
+}

@@ -1,0 +1,59 @@
+# Single-node stack: one relay + Postgres. Good for local dev and small
+# deployments. For high availability (N replicas + load balancer) use
+# deploy/docker-compose.ha.yml. Configure secrets/target in a .env file
+# (see .env.example) — nothing is hardcoded.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-relay}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-relay}
+      POSTGRES_DB: ${POSTGRES_DB:-relay}
+    volumes:
+      - relay-pgdata:/var/lib/postgresql/data
+    # Not published to the host: the log holds onboarding metadata and only the
+    # relay needs it. Uncomment to inspect with psql locally.
+    # ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-relay} -d ${POSTGRES_DB:-relay}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  relay:
+    build: .
+    image: uqudo/webhook-relay:1.0.0
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      # --- delivery log: postgres|mongo|elasticsearch|memory (auto-migrates) ---
+      LOG_STORE: ${LOG_STORE:-postgres}
+      DATABASE_URL: postgres://${POSTGRES_USER:-relay}:${POSTGRES_PASSWORD:-relay}@postgres:5432/${POSTGRES_DB:-relay}
+      PG_SSL: "false"
+      LOG_PAYLOADS: ${LOG_PAYLOADS:-false}
+      # --- admin dashboard (unset => dashboard disabled, fail-closed) ---
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:-}
+      # --- Intuition target (REQUIRED — set in .env) ---
+      INTUITION_BASE_URL: ${INTUITION_BASE_URL:?set INTUITION_BASE_URL in .env}
+      INTUITION_TENANT_ID: ${INTUITION_TENANT_ID:?set INTUITION_TENANT_ID in .env}
+      INTUITION_DATASET_ID: ${INTUITION_DATASET_ID:?set INTUITION_DATASET_ID in .env}
+      INTUITION_RUN_STRATEGY: ${INTUITION_RUN_STRATEGY:-true}
+      INTUITION_TOKEN: ${INTUITION_TOKEN:-}
+      # --- Uqudo JWS verification (set UQUDO_PUBLIC_KEY for production) ---
+      UQUDO_PUBLIC_KEY: ${UQUDO_PUBLIC_KEY:-}
+      ALLOW_UNVERIFIED: ${ALLOW_UNVERIFIED:-false}
+      # --- inbound auth (header secret or capability-URL token) ---
+      WEBHOOK_AUTH_HEADER: ${WEBHOOK_AUTH_HEADER:-x-api-key}
+      WEBHOOK_AUTH_VALUE: ${WEBHOOK_AUTH_VALUE:-}
+      WEBHOOK_URL_TOKEN: ${WEBHOOK_URL_TOKEN:-}
+      CLIENT_ID: ${CLIENT_ID:-}
+      CLIENT_NAME: ${CLIENT_NAME:-}
+
+volumes:
+  relay-pgdata:

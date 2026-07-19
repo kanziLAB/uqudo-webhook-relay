@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Secrets & local env — NEVER commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Vercel
+.vercel/
+
+# Local tooling / agent data
+.claude-flow/
+.swarm/
+.obsidian/
+
+# Logs & OS cruft
+*.log
+.DS_Store

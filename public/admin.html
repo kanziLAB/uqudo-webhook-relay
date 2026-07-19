@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Uqudo Webhook Relay — Admin</title>
+<style>
+  /* Dark by default, regardless of OS preference. `color-scheme: dark` makes
+     native controls (scrollbars, <select> menus) dark too, so they don't paint
+     white on the dark page. The light palette is kept but opt-in only — set
+     data-theme="light" on <html> to use it, so a toggle can be added later. */
+  :root{
+    color-scheme: dark;
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2128; --line:#30363d;
+    --text:#e6edf3; --muted:#8b949e; --accent:#3377ff; --accent2:#58a6ff;
+    --ok:#3fb950; --warn:#d29922; --err:#f85149; --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  :root[data-theme="light"]{
+    color-scheme: light;
+    --bg:#f6f8fa; --panel:#fff; --panel2:#f6f8fa; --line:#d0d7de;
+    --text:#1f2328; --muted:#656d76; --accent:#3377ff; --accent2:#0969da;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;}
+  a{color:var(--accent2)}
+  .wrap{max-width:1400px;margin:0 auto;padding:20px}
+  .hide{display:none !important}
+
+  /* header */
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+         padding:14px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .logo{font-weight:700;font-size:16px;letter-spacing:-.2px}
+  .logo span{color:var(--accent)}
+  .spacer{flex:1}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;
+        border:1px solid var(--line);background:var(--panel2);font-size:12px;color:var(--muted);white-space:nowrap}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none}
+  .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.err{background:var(--err)}
+
+  /* Live-refresh indicator — makes the auto-poll visible. The dot pulses
+     continuously while polling; the pill flashes on each real fetch; the text
+     counts "updated Ns ago" every second so it is always visibly moving. */
+  .live{display:inline-flex;align-items:center;gap:7px;padding:3px 10px;border-radius:999px;
+        border:1px solid var(--line);background:var(--panel2);font-size:12px;color:var(--muted);
+        white-space:nowrap;transition:background .15s ease,border-color .15s ease}
+  .live .ld{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;position:relative}
+  .live.on .ld{animation:pulse 2s ease-out infinite}
+  .live.paused .ld{background:var(--muted);animation:none}
+  .live.flash{background:color-mix(in srgb,var(--accent) 22%,var(--panel2));border-color:var(--accent)}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 70%,transparent)}
+    70%{box-shadow:0 0 0 7px transparent}
+    100%{box-shadow:0 0 0 0 transparent}
+  }
+
+  button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);
+         border-radius:6px;padding:6px 12px;cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.danger:hover{border-color:var(--err);color:var(--err)}
+  input,select{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);
+               border-radius:6px;padding:7px 10px}
+  input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
+
+  /* login */
+  .login{max-width:380px;margin:12vh auto;background:var(--panel);border:1px solid var(--line);
+         border-radius:12px;padding:28px}
+  .login h1{margin:0 0 6px;font-size:19px}
+  .login p{margin:0 0 18px;color:var(--muted);font-size:13px}
+  .login input{width:100%;margin-bottom:12px}
+  .login button{width:100%}
+  .err{color:var(--err);font-size:13px;margin-top:10px;min-height:18px}
+
+  /* cards */
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.6px}
+  .card .v{font-size:26px;font-weight:650;margin-top:4px;letter-spacing:-.5px}
+  .card .v.ok{color:var(--ok)} .card .v.err{color:var(--err)} .card .v.warn{color:var(--warn)}
+  .card .sub{color:var(--muted);font-size:11px;margin-top:2px}
+
+  .grid2{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:16px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .panel h2{margin:0 0 12px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+
+  /* banner */
+  .banner{border:1px solid var(--warn);background:color-mix(in srgb,var(--warn) 10%,transparent);
+          border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:13px;display:flex;gap:8px}
+  .banner b{color:var(--warn)}
+
+  /* toolbar */
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  .toolbar input[type=search]{min-width:220px;flex:1}
+  label.chk{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;cursor:pointer}
+
+  /* log */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;
+     letter-spacing:.5px;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  tbody tr{cursor:pointer}
+  tbody tr:hover{background:var(--panel2)}
+  .mono{font-family:var(--mono);font-size:12px}
+  .tag{display:inline-block;padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600;white-space:nowrap}
+  .tag.forwarded{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+  .tag.rejected{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+  .tag[class*="error"]{background:color-mix(in srgb,var(--err) 18%,transparent);color:var(--err)}
+  .risk{font-weight:600}
+  .risk.Clean{color:var(--ok)} .risk.Suspicious{color:var(--warn)} .risk.High{color:var(--err)}
+  /* Individual triggered-rule chips; hover shows the rule's description. */
+  .rcs{display:flex;flex-wrap:wrap;gap:3px;max-width:280px}
+  .rc{display:inline-block;padding:1px 6px;border-radius:5px;font-size:11px;font-family:var(--mono);
+      white-space:nowrap;cursor:help;color:var(--accent2);
+      background:color-mix(in srgb,var(--accent) 15%,transparent);
+      border:1px solid color-mix(in srgb,var(--accent) 32%,transparent)}
+  .rulerow{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:baseline;font-size:13px}
+  .rulerow .rc{align-self:start}
+  .empty{text-align:center;color:var(--muted);padding:36px 10px}
+
+  /* detail drawer */
+  .drawer{position:fixed;top:0;right:0;bottom:0;width:min(760px,94vw);background:var(--panel);
+          border-left:1px solid var(--line);box-shadow:-8px 0 40px rgba(0,0,0,.4);
+          transform:translateX(100%);transition:transform .18s ease;overflow-y:auto;z-index:50}
+  .drawer.open{transform:none}
+  .drawer .dh{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);
+              padding:14px 18px;display:flex;align-items:center;gap:10px}
+  .drawer .db{padding:18px}
+  pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;
+      overflow-x:auto;font-family:var(--mono);font-size:12px;margin:0 0 14px}
+  .kv{display:grid;grid-template-columns:150px 1fr;gap:6px 12px;margin-bottom:16px;font-size:13px}
+  .kv .k{color:var(--muted)}
+  .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40}
+  h3{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:0 0 8px}
+
+  .bars{display:flex;flex-direction:column;gap:7px}
+  .bar{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;font-size:12px}
+  .bar .track{height:6px;background:var(--panel2);border-radius:3px;overflow:hidden}
+  .bar .fill{height:100%;background:var(--accent)}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<div id="login" class="login hide">
+  <h1>Webhook Relay</h1>
+  <p>Sign in to view delivery logs.</p>
+  <form id="loginForm">
+    <input type="password" id="pw" placeholder="Admin password" autocomplete="current-password" required>
+    <button class="primary" type="submit">Sign in</button>
+  </form>
+  <div class="err" id="loginErr"></div>
+</div>
+
+<!-- ============ DISABLED ============ -->
+<div id="disabled" class="login hide">
+  <h1>Dashboard disabled</h1>
+  <p>No <code>ADMIN_PASSWORD</code> is set, so the dashboard is turned off rather than left open to anyone with the URL.</p>
+  <pre style="margin:0">vercel env add ADMIN_PASSWORD
+# or: docker run -e ADMIN_PASSWORD=…</pre>
+</div>
+
+<!-- ============ DASHBOARD ============ -->
+<div id="app" class="hide">
+  <header>
+    <div class="logo">uqudo<span>·</span>relay</div>
+    <div class="pill" id="pTarget"><span class="dot"></span><span>—</span></div>
+    <div class="pill" id="pJws"><span class="dot"></span><span>—</span></div>
+    <div class="pill" id="pStore"><span class="dot"></span><span>—</span></div>
+    <div class="spacer"></div>
+    <span class="live on" id="live"><span class="ld"></span><span id="liveText">connecting…</span></span>
+    <label class="chk"><input type="checkbox" id="auto" checked> Auto-refresh</label>
+    <button id="ping">Ping Intuition</button>
+    <button id="refresh">Refresh</button>
+    <button id="logout">Sign out</button>
+  </header>
+
+  <div class="wrap">
+    <div id="banners"></div>
+
+    <div class="cards" id="cards"></div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2 id="chartTitle">Deliveries — last 24 hours</h2>
+        <div id="chart"></div>
+      </div>
+      <div class="panel">
+        <h2>Top rules triggered</h2>
+        <div class="bars" id="rules"><div class="muted">No data yet.</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Request log</h2>
+      <div class="toolbar">
+        <input type="search" id="q" placeholder="Search verification id, customer, reason…">
+        <select id="filter">
+          <option value="">All results</option>
+          <option value="forwarded">Forwarded</option>
+          <option value="intuition-error">Intuition error</option>
+          <option value="rejected">Rejected</option>
+          <option value="error">Error</option>
+        </select>
+        <select id="range" title="Time range">
+          <option value="">All time</option>
+          <option value="24h">Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+        </select>
+        <div class="spacer"></div>
+        <span class="muted" id="count"></span>
+        <button class="danger" id="clear">Clear log</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr>
+            <th>Time</th><th>Result</th><th>Verification ID</th><th>Customer</th>
+            <th>Risk</th><th>Score</th><th>Rules</th><th>HTTP</th><th>Took</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="empty hide" id="empty">No deliveries recorded yet.</div>
+    </div>
+  </div>
+</div>
+
+<div class="backdrop hide" id="backdrop"></div>
+<div class="drawer" id="drawer">
+  <div class="dh"><b id="dTitle">Delivery</b><div class="spacer"></div><button id="dClose">Close</button></div>
+  <div class="db" id="dBody"></div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const api = async (p, o) => {
+  const r = await fetch('/api/admin' + p, { credentials: 'same-origin', ...o });
+  if (r.status === 401) { show('login'); throw new Error('unauthorised'); }
+  if (!r.ok) throw new Error((await r.json().catch(()=>({}))).error || r.statusText);
+  return r.json();
+};
+const show = (id) => ['login','disabled','app'].forEach(x => $('#'+x).classList.toggle('hide', x !== id));
+
+let timer = null, CONF = {};
+
+// ---------- boot ----------
+(async function boot(){
+  const s = await fetch('/api/admin/session', {credentials:'same-origin'}).then(r=>r.json());
+  if (!s.enabled) return show('disabled');
+  if (!s.authed) return show('login');
+  start();
+})();
+
+$('#loginForm').onsubmit = async (e) => {
+  e.preventDefault();
+  $('#loginErr').textContent = '';
+  const r = await fetch('/api/admin/login', {
+    method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ password: $('#pw').value })
+  });
+  if (!r.ok) { $('#loginErr').textContent = (await r.json().catch(()=>({}))).error || 'Sign-in failed'; return; }
+  $('#pw').value = '';
+  start();
+};
+
+$('#logout').onclick = async () => {
+  await fetch('/api/admin/logout', {method:'POST', credentials:'same-origin'});
+  clearInterval(timer); show('login');
+};
+
+async function start(){
+  show('app');
+  CONF = await api('/config');
+  renderHeader(); renderBanners();
+  await refresh({ force: true });
+  clearInterval(timer);
+  timer = setInterval(() => { if ($('#auto').checked && !busy()) refresh(); }, 5000);
+}
+
+// ---------- header / banners ----------
+function pill(el, cls, text, title){
+  const n = $(el); n.querySelector('.dot').className = 'dot ' + cls;
+  n.querySelector('span:last-child').textContent = text;
+  n.title = title || '';
+}
+function renderHeader(){
+  const ds = CONF.datasetId ? CONF.datasetId.slice(0,8) : '—';
+  pill('#pTarget','ok', `${CONF.runtime} → ${ds}…`, CONF.target);
+  const jwsOk = CONF.jwsVerification === 'enabled';
+  pill('#pJws', jwsOk ? 'ok':'err', jwsOk ? 'JWS verified' : 'JWS unverified', CONF.jwsVerification);
+  pill('#pStore', CONF.logDurable ? 'ok':'warn', `log: ${CONF.logStore}`,
+       CONF.logDurable ? 'Durable store' : 'In-process buffer');
+}
+function renderBanners(){
+  const b = [];
+  if (CONF.jwsVerification !== 'enabled')
+    b.push(`<b>JWS verification is off.</b>&nbsp;Signatures are not checked (<code>${esc(CONF.jwsVerification)}</code>), so the inbound shared secret is the only thing authenticating callers. Set <code>UQUDO_PUBLIC_KEY</code> before this handles anything real.`);
+  if (!CONF.logDurable && CONF.runtime === 'vercel')
+    b.push(`<b>Log history is incomplete.</b>&nbsp;The <code>memory</code> store keeps deliveries in one serverless instance, so rows vanish on cold starts and requests served by other instances are missing entirely. Set <code>LOG_STORE=supabase</code> for real history.`);
+  else if (!CONF.logDurable)
+    b.push(`<b>Log is in-process.</b>&nbsp;The last ${CONF.ringSize} deliveries are kept in memory and cleared on restart.`);
+  if (!CONF.inboundAuth)
+    b.push(`<b>No inbound secret.</b>&nbsp;Anyone who knows this URL can post KYC documents to your dataset.`);
+  if (CONF.logPayloads)
+    b.push(`<b>Payload capture is on.</b>&nbsp;Decoded KYC data (masked) is being written to the log. Turn <code>LOG_PAYLOADS</code> off when you're done debugging.`);
+  $('#banners').innerHTML = b.map(t => `<div class="banner"><div>${t}</div></div>`).join('');
+}
+
+// ---------- data ----------
+// The poll runs every 5s, but rewriting innerHTML on every tick repaints the
+// whole page — text flickers, and you cannot read a row without it moving under
+// you. So: fingerprint the data and touch the DOM only when it actually changed.
+// Built from cheap fields; deep-comparing rows would mean stringifying captured
+// payloads every 5 seconds for nothing.
+let lastSig = '';
+const signature = (stats, list) =>
+  [stats.total, stats.lastAt, list.total, list.rows.map((r) => r.id).join(',')].join('|');
+
+// The time range scopes BOTH the stat cards and the list, so they always agree.
+const rangeParam = () => { const r = $('#range') && $('#range').value; return r ? `?range=${r}` : ''; };
+
+async function refresh({ force = false } = {}) {
+  const [stats, list] = await Promise.all([api('/stats' + rangeParam()), fetchList()]);
+  const sig = signature(stats, list);
+  if (!force && sig === lastSig) { stampChecked(); return; }
+  lastSig = sig;
+  renderCards(stats); renderChart(stats.timeline); renderRules(stats.topRules); renderRows(list);
+  stampChecked();
+}
+
+/** Auto-refresh should never yank the page while you are using it. */
+function busy() {
+  if (document.getElementById('drawer').classList.contains('open')) return true;  // reading a delivery
+  const el = document.activeElement;
+  return el === $('#q') || el === $('#filter') || el === $('#range');              // mid-search
+}
+
+// ---- live indicator ----
+// lastPollAt records every successful poll (data changed or not); a 1s ticker
+// renders "updated Ns ago" so the indicator is always visibly moving, and each
+// poll briefly flashes the pill so you can see the moment it refreshes.
+let lastPollAt = 0;
+function stampChecked() {
+  lastPollAt = Date.now();
+  const live = $('#live');
+  if (live) {
+    live.classList.add('flash');
+    setTimeout(() => live.classList.remove('flash'), 300);
+  }
+  renderLive();
+}
+function renderLive() {
+  const live = $('#live'), txt = $('#liveText');
+  if (!live || !txt) return;
+  const on = $('#auto') && $('#auto').checked;
+  live.classList.toggle('on', on);
+  live.classList.toggle('paused', !on);
+  if (!lastPollAt) { txt.textContent = on ? 'Live · connecting…' : 'Paused'; return; }
+  const secs = Math.round((Date.now() - lastPollAt) / 1000);
+  const ago = secs <= 1 ? 'just now' : `${secs}s ago`;
+  txt.textContent = on ? `Live · updated ${ago}` : `Paused · updated ${ago}`;
+}
+setInterval(renderLive, 1000);
+function fetchList(){
+  const p = new URLSearchParams({ limit: '100' });
+  if ($('#filter').value) p.set('result', $('#filter').value);
+  if ($('#range').value) p.set('range', $('#range').value);
+  if ($('#q').value.trim()) p.set('q', $('#q').value.trim());
+  return api('/deliveries?' + p);
+}
+const ms = (v) => v == null ? '—' : (v < 1000 ? v + 'ms' : (v/1000).toFixed(1) + 's');
+
+function renderCards(s){
+  const fail = s.failed;
+  $('#cards').innerHTML = [
+    ['Total requests', s.total, '', ''],
+    ['Forwarded', s.forwarded, 'ok', 'reached Intuition'],
+    ['Failed', fail, fail ? 'err' : '', 'rejected or errored'],
+    ['Success rate', s.total ? s.successRate + '%' : '—', s.successRate === 100 ? 'ok' : (s.total && s.successRate < 90 ? 'err' : 'warn'), ''],
+    ['Avg latency', ms(s.avgMs), '', 'end-to-end'],
+    ['p95 latency', ms(s.p95Ms), '', 'max ' + ms(s.maxMs)]
+  ].map(([k,v,cls,sub]) => `<div class="card"><div class="k">${k}</div><div class="v ${cls}">${esc(v)}</div><div class="sub">${esc(sub)}</div></div>`).join('');
+}
+
+// The chart follows the range selector: hourly bars for 24h/all, daily for 7d/30d.
+const CHART_META = {
+  '':    { title: 'Deliveries — last 24 hours', left: '24h ago', unit: 'hour' },
+  '24h': { title: 'Deliveries — last 24 hours', left: '24h ago', unit: 'hour' },
+  '7d':  { title: 'Deliveries — last 7 days',   left: '7d ago',  unit: 'day'  },
+  '30d': { title: 'Deliveries — last 30 days',  left: '30d ago', unit: 'day'  }
+};
+function renderChart(tl){
+  const m = CHART_META[($('#range') && $('#range').value) || ''] || CHART_META[''];
+  if ($('#chartTitle')) $('#chartTitle').textContent = m.title;
+  if (!tl || !tl.length) { $('#chart').innerHTML = ''; return; }
+  const max = Math.max(1, ...tl.map(b => b.ok + b.fail));
+  const W = 100, H = 90, bw = W / tl.length;
+  const label = (t) => m.unit === 'hour'
+    ? `${String(new Date(t).getHours()).padStart(2,'0')}:00`
+    : new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  // Glossy fill: a bright sheen up top fading to a richer base, plus a
+  // translucent white highlight over the top of each column.
+  const grad = (id, c) => `<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"    style="stop-color:color-mix(in srgb,${c} 35%,#fff)"/>
+      <stop offset="0.10" style="stop-color:color-mix(in srgb,${c} 72%,#fff)"/>
+      <stop offset="0.45" style="stop-color:${c}"/>
+      <stop offset="1"    style="stop-color:color-mix(in srgb,${c} 80%,#000)"/>
+    </linearGradient>`;
+  const defs = `<defs>${grad('gOk','var(--ok)')}${grad('gErr','var(--err)')}
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.5"/>
+      <stop offset="0.6" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient></defs>`;
+  const bars = tl.map((b,i) => {
+    const x = i * bw, w = bw * .7, lx = x + bw * .15;
+    const okH = (b.ok / max) * H, failH = (b.fail / max) * H, tot = okH + failH;
+    const sheen = tot > 0
+      ? `<rect x="${lx}" y="${H-tot}" width="${w}" height="${tot*.5}" fill="url(#gloss)"/>` : '';
+    return `<g><title>${label(b.t)} — ${b.ok} forwarded, ${b.fail} failed</title>
+      <rect x="${lx}" y="${H-failH}" width="${w}" height="${failH}" fill="url(#gErr)"/>
+      <rect x="${lx}" y="${H-tot}" width="${w}" height="${okH}" fill="url(#gOk)"/>
+      ${sheen}
+      <rect x="${x}" y="0" width="${bw}" height="${H}" fill="transparent"/></g>`;
+  }).join('');
+  $('#chart').innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:120px;display:block">${defs}${bars}</svg>
+     <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-top:6px">
+       <span>${m.left}</span><span>peak ${max}/${m.unit === 'hour' ? 'h' : 'day'}</span><span>now</span></div>`;
+}
+
+function renderRules(rules){
+  if (!rules || !rules.length) { $('#rules').innerHTML = '<div class="muted">No rules triggered yet.</div>'; return; }
+  const max = Math.max(...rules.map(r => r.count));
+  $('#rules').innerHTML = rules.map(r => `
+    <div class="bar">
+      <div><div class="mono" style="margin-bottom:3px">${esc(r.name)}</div>
+        <div class="track"><div class="fill" style="width:${(r.count/max)*100}%"></div></div></div>
+      <div class="muted">${r.count}</div>
+    </div>`).join('');
+}
+
+let ROWS = [];
+// Zip triggered rule codes with their descriptions. Intuition returns
+// RulesTriggered and RulesDescriptions as parallel arrays, so pair BY INDEX
+// before trimming/dropping blanks — otherwise codes and descriptions misalign.
+function ruleList(r){
+  const codes = r.rulesTriggered || [], descs = r.rulesDescriptions || [];
+  return codes.map((c, i) => ({
+    code: String(c ?? '').trim(),
+    desc: descs[i] != null ? String(descs[i]).trim() : ''
+  })).filter(x => x.code);
+}
+// Row cell: one chip per rule, description on hover (falls back to the code for
+// older records saved before descriptions were captured).
+function ruleChips(r){
+  const list = ruleList(r);
+  if (!list.length) return '—';
+  return `<div class="rcs">${list.map(x =>
+    `<span class="rc" title="${esc(x.desc || x.code)}">${esc(x.code)}</span>`).join('')}</div>`;
+}
+
+function renderRows(list){
+  ROWS = list.rows;
+  $('#count').textContent = `${list.rows.length} of ${list.total}`;
+  $('#empty').classList.toggle('hide', list.rows.length > 0);
+  $('#rows').innerHTML = list.rows.map(r => {
+    return `<tr data-id="${esc(r.id)}">
+      <td class="mono" title="${esc(r.at)}">${new Date(r.at).toLocaleTimeString()}</td>
+      <td><span class="tag ${esc(r.result)}">${esc(r.result)}</span></td>
+      <td class="mono">${esc(r.verification_id || '—')}</td>
+      <td class="mono">${esc(r.customer_number || '—')}</td>
+      <td><span class="risk ${esc(r.riskLevel||'')}">${esc(r.riskLevel || '—')}</span></td>
+      <td class="mono">${r.totalRulesScore ?? '—'}</td>
+      <td>${ruleChips(r)}</td>
+      <td class="mono">${r.intuitionStatus ?? r.httpStatus ?? '—'}</td>
+      <td class="mono">${ms(r.durationMs)}</td>
+    </tr>`;
+  }).join('');
+  $('#rows').querySelectorAll('tr').forEach(tr => tr.onclick = () => openDrawer(tr.dataset.id));
+}
+
+// ---------- drawer ----------
+function openDrawer(id){
+  const r = ROWS.find(x => x.id === id);
+  if (!r) return;
+  $('#dTitle').textContent = r.verification_id || r.result;
+  const rules = ruleList(r);
+  const kv = (o) => Object.entries(o).filter(([,v]) => v !== undefined && v !== null && v !== '')
+    .map(([k,v]) => `<div class="k">${esc(k)}</div><div class="mono">${esc(v)}</div>`).join('');
+
+  let h = `<div class="kv">${kv({
+    'Result': r.result, 'Reason': r.reason, 'At': r.at,
+    'Verification ID': r.verification_id, 'Customer': r.customer_number,
+    'JWS verified': String(r.verified), 'Risk level': r.riskLevel,
+    'Rules score': r.totalRulesScore,
+    'Intuition status': r.intuitionStatus, 'Response to Uqudo': r.httpStatus,
+    'Duration': ms(r.durationMs), 'Source IP': r.ip, 'User agent': r.userAgent
+  })}</div>`;
+
+  // Each triggered rule with its description spelled out (no hover needed here).
+  if (rules.length) h += `<h3>Rules triggered (${rules.length})</h3><div class="rulerow">${
+    rules.map(x => `<span class="rc" title="${esc(x.code)}">${esc(x.code)}</span>` +
+      `<span class="muted">${esc(x.desc || '(no description returned)')}</span>`).join('')
+  }</div>`;
+
+  if (r.stages) h += `<h3>Stage timings</h3><div class="kv">${kv({
+    'Verify/decode': ms(r.stages.verifyMs), 'Map': ms(r.stages.mapMs), 'Forward to Intuition': ms(r.stages.forwardMs)
+  })}</div>`;
+
+  if (r.intuitionError) h += `<h3>Intuition error</h3><pre>${esc(JSON.stringify(r.intuitionError, null, 2))}</pre>`;
+
+  if (r.payloads) {
+    if (r.payloads.jwt) h += `<h3>Decoded JWT (masked)</h3><pre>${esc(JSON.stringify(r.payloads.jwt, null, 2))}</pre>`;
+    if (r.payloads.document) h += `<h3>Mapped document (masked)</h3><pre>${esc(JSON.stringify(r.payloads.document, null, 2))}</pre>`;
+    if (r.payloads.intuitionResponse) h += `<h3>Intuition response</h3><pre>${esc(JSON.stringify(r.payloads.intuitionResponse, null, 2))}</pre>`;
+  } else {
+    h += `<h3>Payloads</h3><p class="muted">Not captured. Set <code>LOG_PAYLOADS=true</code> to record the decoded JWT and mapped document (masked) for debugging.</p>`;
+  }
+
+  $('#dBody').innerHTML = h;
+  $('#drawer').classList.add('open'); $('#backdrop').classList.remove('hide');
+}
+const closeDrawer = () => { $('#drawer').classList.remove('open'); $('#backdrop').classList.add('hide'); };
+$('#dClose').onclick = closeDrawer; $('#backdrop').onclick = closeDrawer;
+document.onkeydown = (e) => { if (e.key === 'Escape') closeDrawer(); };
+
+// ---------- controls ----------
+// Anything the operator asked for re-renders unconditionally: a filter change
+// can produce the same row ids yet a different count, and "Refresh" doing
+// nothing visible would read as broken.
+$('#refresh').onclick = () => refresh({ force: true });
+$('#filter').onchange = () => refresh({ force: true });
+$('#range').onchange = () => refresh({ force: true });
+let deb; $('#q').oninput = () => { clearTimeout(deb); deb = setTimeout(() => refresh({ force: true }), 250); };
+$('#clear').onclick = async () => {
+  if (!confirm('Delete all recorded deliveries? This cannot be undone.')) return;
+  await api('/deliveries', { method: 'DELETE' });
+  refresh({ force: true });
+};
+$('#ping').onclick = async () => {
+  const b = $('#ping'); const old = b.textContent; b.textContent = 'Pinging…'; b.disabled = true;
+  try {
+    const r = await api('/ping-intuition');
+    alert(r.reachable
+      ? `Intuition reachable — HTTP ${r.status} in ${r.durationMs}ms.\n\n${r.note}`
+      : `Not reachable: ${r.error}`);
+  } finally { b.textContent = old; b.disabled = false; }
+};
+</script>
+</body>
+</html>
