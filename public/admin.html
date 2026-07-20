@@ -115,6 +115,12 @@
   .tag.rejected{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
   .tag.skipped{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--muted)}
   .tag.acknowledged{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--muted)}
+  /* Row-level "Stop retries" — must read as an action, not a status tag */
+  .ackrow{margin-left:6px;padding:2px 8px;font-size:11px;font-weight:600;border-radius:5px;cursor:pointer;
+    white-space:nowrap;color:var(--err);background:color-mix(in srgb,var(--err) 12%,transparent);
+    border:1px solid color-mix(in srgb,var(--err) 45%,transparent)}
+  .ackrow:hover{background:color-mix(in srgb,var(--err) 22%,transparent)}
+  .ackrow:disabled{opacity:.6;cursor:default}
   .tag[class*="error"]{background:color-mix(in srgb,var(--err) 18%,transparent);color:var(--err)}
   .risk{font-weight:600}
   .risk.Clean{color:var(--ok)} .risk.Suspicious{color:var(--warn)} .risk.High{color:var(--err)}
@@ -350,8 +356,12 @@ const signature = (stats, list) =>
 const rangeParam = () => { const r = $('#range') && $('#range').value; return r ? `?range=${r}` : ''; };
 
 async function refresh({ force = false } = {}) {
-  const [stats, list] = await Promise.all([api('/stats' + rangeParam()), fetchList()]);
-  const sig = signature(stats, list);
+  const [stats, list, acks] = await Promise.all([
+    api('/stats' + rangeParam()), fetchList(),
+    api('/acks').catch(() => ({ acked: [] }))
+  ]);
+  ACKED = new Set((acks.acked || []).map(a => a.id));
+  const sig = signature(stats, list) + '|' + [...ACKED].join(',');
   if (!force && sig === lastSig) { stampChecked(); return; }
   lastSig = sig;
   renderCards(stats); renderChart(stats.timeline); renderRules(stats.topRules); renderRows(list);
@@ -470,6 +480,7 @@ function renderRules(rules){
 }
 
 let ROWS = [];
+let ACKED = new Set();   // acked verification ids — refreshed with each poll
 // Zip triggered rule codes with their descriptions. Intuition returns
 // RulesTriggered and RulesDescriptions as parallel arrays, so pair BY INDEX
 // before trimming/dropping blanks — otherwise codes and descriptions misalign.
@@ -496,7 +507,13 @@ function renderRows(list){
   $('#rows').innerHTML = list.rows.map(r => {
     return `<tr data-id="${esc(r.id)}">
       <td class="mono" title="${esc(r.at)}">${new Date(r.at).toLocaleTimeString()}</td>
-      <td><span class="tag ${esc(r.result)}">${esc(r.result)}</span></td>
+      <td><span class="tag ${esc(r.result)}">${esc(r.result)}</span>${
+        ['intuition-error','error'].includes(r.result) && r.verification_id
+          ? (ACKED.has(r.verification_id)
+              ? ' <span class="tag acknowledged" title="Already acknowledged — Uqudo gets 200 on its next retry">acked</span>'
+              : ` <button class="ackrow" data-vid="${esc(r.verification_id)}" title="Answer 200 to Uqudo's next retry so it stops re-posting this session">Stop retries</button>`)
+          : ''
+      }</td>
       <td class="mono">${esc(r.verification_id || '—')}</td>
       <td class="mono">${esc(r.customer_number || '—')}</td>
       <td><span class="risk ${esc(r.riskLevel||'')}">${esc(r.riskLevel || '—')}</span></td>
@@ -507,6 +524,16 @@ function renderRows(list){
     </tr>`;
   }).join('');
   $('#rows').querySelectorAll('tr').forEach(tr => tr.onclick = () => openDrawer(tr.dataset.id));
+  // Row-level ack: stop Uqudo's retries without opening the drawer. Must not
+  // bubble, or the row click would open the drawer on top of the action.
+  $('#rows').querySelectorAll('button.ackrow').forEach(b => b.onclick = async (e) => {
+    e.stopPropagation();
+    b.disabled = true; b.textContent = 'stopping…';
+    try {
+      await api('/acks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ verificationId: b.dataset.vid }) });
+      await refresh({ force: true });
+    } catch (err) { b.disabled = false; b.textContent = 'Stop retries'; }
+  });
 }
 
 // ---------- drawer ----------
