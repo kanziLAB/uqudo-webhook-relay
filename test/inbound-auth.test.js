@@ -97,6 +97,21 @@ check('enrollment (has document scan) passes the gate into the forward path', as
   assert.strictEqual(r.status, 502, 'enrollment must reach the forward step, not be skipped');
 });
 
+check('acknowledged session answers 200 and is not forwarded; undo restores forwarding', async () => {
+  const settings = require('../lib/settings');
+  const enrollment = { jti: 'acked-enroll-1', data: { documents: [{ documentType: 'ID', scan: { front: { fullName: 'ALEX SAMPLE TESTER' } } }] } };
+  await settings.ackSession('acked-enroll-1');
+  const r = await postJws(enrollment);
+  assert.strictEqual(r.status, 200, 'acked session must get 200 so Uqudo stops retrying');
+  assert.strictEqual((await r.json()).acknowledged, true);
+  const store = require('../lib/store');
+  const { rows } = await store.list({ limit: 5 });
+  const row = rows.find((x) => x.verification_id === 'acked-enroll-1');
+  assert.ok(row && row.result === 'acknowledged', 'delivery log must record result=acknowledged');
+  await settings.unackSession('acked-enroll-1');
+  assert.strictEqual((await postJws(enrollment)).status, 502, 'after undo the same session must forward again (dies at forward: 502)');
+});
+
 check('the url token must never appear in the delivery log', async () => {
   await post('/api/uqudo-webhook/tok_correct_value_123');
   const store = require('../lib/store');

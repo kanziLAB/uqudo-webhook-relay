@@ -114,6 +114,7 @@
   .tag.forwarded{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
   .tag.rejected{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
   .tag.skipped{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--muted)}
+  .tag.acknowledged{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--muted)}
   .tag[class*="error"]{background:color-mix(in srgb,var(--err) 18%,transparent);color:var(--err)}
   .risk{font-weight:600}
   .risk.Clean{color:var(--ok)} .risk.Suspicious{color:var(--warn)} .risk.High{color:var(--err)}
@@ -224,6 +225,7 @@
           <option value="intuition-error">Intuition error</option>
           <option value="rejected">Rejected</option>
           <option value="skipped">Skipped</option>
+          <option value="acknowledged">Acknowledged</option>
           <option value="error">Error</option>
         </select>
         <select id="range" title="Time range">
@@ -525,6 +527,12 @@ function openDrawer(id){
     'Duration': ms(r.durationMs), 'Source IP': r.ip, 'User agent': r.userAgent
   })}</div>`;
 
+  // Manual acknowledgement — only meaningful for sessions Uqudo is (or was)
+  // retrying: failures, and already-acked rows (to allow undo).
+  if (r.verification_id && ['intuition-error', 'error', 'acknowledged'].includes(r.result)) {
+    h += `<div id="ackZone" style="margin:12px 0"></div>`;
+  }
+
   // Each triggered rule with its description spelled out (no hover needed here).
   if (rules.length) h += `<h3>Rules triggered (${rules.length})</h3><div class="rulerow">${
     rules.map(x => `<span class="rc" title="${esc(x.code)}">${esc(x.code)}</span>` +
@@ -554,6 +562,33 @@ function openDrawer(id){
 
   $('#dBody').innerHTML = h;
   $('#drawer').classList.add('open'); $('#backdrop').classList.remove('hide');
+  if (document.getElementById('ackZone')) renderAckZone(r.verification_id);
+}
+
+// Ack state is read fresh each time the drawer opens; the buttons act on the
+// admin API and re-render in place.
+async function renderAckZone(vid){
+  const z = document.getElementById('ackZone'); if (!z) return;
+  try {
+    const d = await (await fetch('/api/admin/acks')).json();
+    const acked = (d.acked || []).some(a => a.id === vid);
+    z.innerHTML = acked
+      ? `<span class="tag acknowledged">acknowledged</span> <span class="muted">Uqudo gets a 200 on its next retry, then stops. This session is not forwarded to Intuition.</span> <button id="ackUndo">Undo</button>`
+      : `<button id="ackBtn">Acknowledge — stop retries</button> <span class="muted">Answers 200 to Uqudo's next retry so it stops re-posting this session. It will NOT be forwarded to Intuition.</span>`;
+    const b = document.getElementById('ackBtn'), u = document.getElementById('ackUndo');
+    if (b) b.onclick = async () => {
+      b.disabled = true;
+      await fetch('/api/admin/acks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ verificationId: vid }) });
+      renderAckZone(vid);
+    };
+    if (u) u.onclick = async () => {
+      u.disabled = true;
+      await fetch('/api/admin/acks/' + encodeURIComponent(vid), { method: 'DELETE' });
+      renderAckZone(vid);
+    };
+  } catch (e) {
+    z.innerHTML = '<span class="muted">ack state unavailable</span>';
+  }
 }
 const closeDrawer = () => { $('#drawer').classList.remove('open'); $('#backdrop').classList.add('hide'); };
 $('#dClose').onclick = closeDrawer; $('#backdrop').onclick = closeDrawer;

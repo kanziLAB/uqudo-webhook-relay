@@ -145,6 +145,29 @@ check('toggle overrides the env default and persists through the store', async (
   assert.strictEqual(await settings.logPayloads(), false);
 });
 
+group('manual acknowledgements:');
+check('ack, list, isAcked and undo round-trip through the store', async () => {
+  const settings = require('../lib/settings');
+  await settings.ackSession('vid-ack-1');
+  settings._resetCache();                    // force a re-read from the store
+  assert.strictEqual(await settings.isAcked('vid-ack-1'), true, 'acked id must be found after re-read');
+  assert.strictEqual(await settings.isAcked('vid-other'), false, 'other ids stay un-acked');
+  const list = await settings.ackedSessions();
+  assert.ok(list.some((a) => a.id === 'vid-ack-1' && a.at), 'list entry carries a timestamp');
+  await settings.unackSession('vid-ack-1');
+  settings._resetCache();
+  assert.strictEqual(await settings.isAcked('vid-ack-1'), false, 'undo must remove the ack');
+});
+check('acking twice does not duplicate; list is capped at 100', async () => {
+  const settings = require('../lib/settings');
+  await settings.ackSession('vid-dup');
+  await settings.ackSession('vid-dup');
+  assert.strictEqual((await settings.ackedSessions()).filter((a) => a.id === 'vid-dup').length, 1);
+  for (let i = 0; i < 120; i++) await settings.ackSession(`vid-bulk-${i}`);
+  assert.ok((await settings.ackedSessions()).length <= 100, 'cap must hold');
+  await settings.unackSession('vid-dup');
+});
+
 group('stats:');
 check('counts, success rate and percentiles', () => {
   const now = new Date().toISOString();

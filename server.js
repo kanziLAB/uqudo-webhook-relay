@@ -166,6 +166,20 @@ app.post(['/api/uqudo-webhook', '/api/uqudo-webhook/:token'], async (req, res) =
     return res.status(400).json({ error: `Invalid jwsResult: ${e.message}` });
   }
 
+  // ---- manual acknowledgement -----------------------------------------------
+  // The operator can acknowledge a failing session from the dashboard. Only a
+  // 200 stops Uqudo's retry loop, so an acked session is answered 200 and
+  // logged — never forwarded.
+  if (kyc && kyc.jti && await settings.isAcked(kyc.jti)) {
+    await record({
+      result: 'acknowledged',
+      reason: 'manually acknowledged from the dashboard — retries stopped, not forwarded',
+      httpStatus: 200, verified, verification_id: kyc.jti,
+      stages, durationMs: Date.now() - started, ...meta
+    });
+    return res.status(200).json({ ok: true, acknowledged: true });
+  }
+
   // ---- session-type gate ----------------------------------------------------
   // The portal webhook fires for EVERY completed session type — enrollments,
   // but also face sessions (login/step-up) and other flows that carry no
