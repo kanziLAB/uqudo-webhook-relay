@@ -113,6 +113,7 @@
   .tag{display:inline-block;padding:2px 7px;border-radius:5px;font-size:11px;font-weight:600;white-space:nowrap}
   .tag.forwarded{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
   .tag.rejected{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+  .tag.skipped{background:color-mix(in srgb,var(--muted) 18%,transparent);color:var(--muted)}
   .tag[class*="error"]{background:color-mix(in srgb,var(--err) 18%,transparent);color:var(--err)}
   .risk{font-weight:600}
   .risk.Clean{color:var(--ok)} .risk.Suspicious{color:var(--warn)} .risk.High{color:var(--err)}
@@ -222,6 +223,7 @@
           <option value="forwarded">Forwarded</option>
           <option value="intuition-error">Intuition error</option>
           <option value="rejected">Rejected</option>
+          <option value="skipped">Skipped</option>
           <option value="error">Error</option>
         </select>
         <select id="range" title="Time range">

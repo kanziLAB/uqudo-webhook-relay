@@ -6,6 +6,9 @@ process.env.WEBHOOK_URL_TOKEN = 'tok_correct_value_123';
 process.env.WEBHOOK_AUTH_VALUE = 'hdr_secret_456';
 process.env.WEBHOOK_AUTH_HEADER = 'x-api-key';
 process.env.ADMIN_PASSWORD = 'pw';
+// Needed by the session-type-gate checks: lets a decodable-but-unsigned JWT
+// through the verify step so the gate itself is reachable.
+process.env.ALLOW_UNVERIFIED = 'true';
 // server.js binds a port on import unless it thinks it is serverless; set this
 // so it just exports the app and the test owns the listener.
 process.env.VERCEL = '1';
@@ -58,6 +61,42 @@ check('tokenless route rejects a missing header', async () => {
 check('tokenless route rejects a wrong header', async () => {
   assert.strictEqual((await post('/api/uqudo-webhook', { 'x-api-key': 'nope' })).status, 401);
 });
+// ---- session-type gate ------------------------------------------------------
+// The portal webhook fires for every session type; only enrollments carry
+// documents. A face session must be answered 200 (skipped) so Uqudo stops
+// retrying, and an enrollment must pass the gate into the forward path.
+const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+const fakeJws = (payload) => `${b64url({ alg: 'RS256' })}.${b64url(payload)}.sig`;
+const postJws = (payload) =>
+  fetch(BASE + '/api/uqudo-webhook/tok_correct_value_123', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jwsResult: fakeJws(payload) })
+  });
+
+check('face session (no documents) is skipped with 200 so Uqudo stops retrying', async () => {
+  const r = await postJws({ jti: 'face-session-1', data: { verifications: [{ biometric: { type: 'FACIAL_RECOGNITION', matchLevel: 5 } }] } });
+  assert.strictEqual(r.status, 200, 'must answer 200 to stop the portal retry loop');
+  const body = await r.json();
+  assert.strictEqual(body.skipped, true, 'must be marked skipped');
+  const store = require('../lib/store');
+  const { rows } = await store.list({ limit: 5 });
+  const row = rows.find((x) => x.verification_id === 'face-session-1');
+  assert.ok(row && row.result === 'skipped', 'delivery log must record result=skipped');
+});
+check('empty documents array is also skipped', async () => {
+  const r = await postJws({ jti: 'face-session-2', data: { documents: [] } });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual((await r.json()).skipped, true);
+});
+check('enrollment (has document scan) passes the gate into the forward path', async () => {
+  // No INTUITION_* config in this test env, so a real enrollment proceeds past
+  // the gate and dies at the forward step with 502 — which is exactly the
+  // proof it was NOT skipped.
+  const r = await postJws({ jti: 'enroll-1', data: { documents: [{ documentType: 'ID', scan: { front: { fullName: 'ALEX SAMPLE TESTER' } } }] } });
+  assert.strictEqual(r.status, 502, 'enrollment must reach the forward step, not be skipped');
+});
+
 check('the url token must never appear in the delivery log', async () => {
   await post('/api/uqudo-webhook/tok_correct_value_123');
   const store = require('../lib/store');

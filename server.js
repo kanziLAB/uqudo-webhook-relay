@@ -166,6 +166,25 @@ app.post(['/api/uqudo-webhook', '/api/uqudo-webhook/:token'], async (req, res) =
     return res.status(400).json({ error: `Invalid jwsResult: ${e.message}` });
   }
 
+  // ---- session-type gate ----------------------------------------------------
+  // The portal webhook fires for EVERY completed session type — enrollments,
+  // but also face sessions (login/step-up) and other flows that carry no
+  // document data. Those can never form a valid Uqudo_KYC_Data document, so
+  // forwarding them just makes Intuition 500 and Uqudo retry for 2 hours.
+  // Answer 200 (stop retrying) and log the delivery as skipped.
+  const sessionDocs = (kyc && kyc.data && Array.isArray(kyc.data.documents) && kyc.data.documents.length)
+    ? kyc.data.documents
+    : (Array.isArray(kyc && kyc.documents) ? kyc.documents : []);
+  if (!sessionDocs.some((d) => d && (d.scan || d.reading || d.documentType))) {
+    await record({
+      result: 'skipped',
+      reason: 'no document data (non-enrollment session, e.g. face session)',
+      httpStatus: 200, verified, verification_id: kyc.jti,
+      stages, durationMs: Date.now() - started, ...meta
+    });
+    return res.status(200).json({ ok: true, skipped: true, reason: 'no document data (non-enrollment session)' });
+  }
+
   // ---- enrich (Info API) ----------------------------------------------------
   // Detection scores are NOT in the webhook JWT — they come from the Info API.
   // Best-effort: a failure logs and the delivery continues with fewer rules.
